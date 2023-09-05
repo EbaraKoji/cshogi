@@ -55,11 +55,14 @@
 #include <cfloat>
 //#include <boost/align/aligned_alloc.hpp>
 
-#if defined (HAVE_BMI2) || defined (HAVE_AVX2)
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#include "sse2neon.h"
+#elif defined (HAVE_BMI2) || defined (HAVE_AVX2)
 #include <immintrin.h>
 #endif
 
-#if defined (HAVE_SSE4)
+#if defined (HAVE_SSE4) && !defined(__ARM_NEON)
 #include <smmintrin.h>
 #elif defined (HAVE_SSE2)
 #include <emmintrin.h>
@@ -148,7 +151,7 @@ FORCE_INLINE int msb(const u64 b) {
 FORCE_INLINE u64 bswap64(const u64 b) {
     return _byteswap_uint64(b);
 }
-#elif defined(__GNUC__) && ( defined(__i386__) || defined(__x86_64__) )
+#elif defined(__GNUC__)
 FORCE_INLINE int firstOneFromLSB(const u64 b) {
     return __builtin_ctzll(b);
 }
@@ -196,8 +199,11 @@ FORCE_INLINE int msb(const u64 b) {
 }
 #endif
 
-#if defined(HAVE_SSE42)
+#if defined(HAVE_SSE42) && !defined(__ARM_NEON)
 #include <nmmintrin.h>
+#endif
+
+#if defined(HAVE_SSE42)
 inline int count1s(u64 x) {
     return static_cast<int>(_mm_popcnt_u64(x));
 }

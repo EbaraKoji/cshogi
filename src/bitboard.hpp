@@ -26,12 +26,18 @@
 #include "square.hpp"
 #include "color.hpp"
 
+// bswap_64をMacOSで定義する
+// -> https://stackoverflow.com/questions/41770887/cross-platform-definition-of-byteswap-uint64-and-byteswap-ulong
+#include <libkern/OSByteOrder.h>
+#define bswap32(x) OSSwapInt32(x)
+#define bswap64(x) OSSwapInt64(x)
+
 class Bitboard;
 extern const Bitboard SetMaskBB[SquareNum];
 
 class Bitboard {
 public:
-#if defined (HAVE_SSE2) || defined (HAVE_SSE4)
+#if defined(HAVE_SSE2) || defined(HAVE_SSE4)
     Bitboard& operator = (const Bitboard& rhs) {
         _mm_store_si128(&this->m_, rhs.m_);
         return *this;
@@ -49,7 +55,7 @@ public:
     void set(const int index, const u64 val) { p_[index] = val; }
     u64 merge() const { return this->p(0) | this->p(1); }
     explicit operator bool() const {
-#ifdef HAVE_SSE4
+#if defined(HAVE_SSE4)
         return !(_mm_testz_si128(this->m_, _mm_set1_epi8(static_cast<char>(0xffu))));
 #else
         return (this->merge() ? true : false);
@@ -58,7 +64,7 @@ public:
     bool isAny() const { return static_cast<bool>(*this); }
     // これはコードが見難くなるけど仕方ない。
     bool andIsAny(const Bitboard& bb) const {
-#ifdef HAVE_SSE4
+#if defined(HAVE_SSE4)
         return !(_mm_testz_si128(this->m_, bb.m_));
 #else
         return (*this & bb).isAny();
@@ -124,7 +130,7 @@ public:
     Bitboard operator << (const int i) const { return Bitboard(*this) <<= i; }
     Bitboard operator >> (const int i) const { return Bitboard(*this) >>= i; }
     bool operator == (const Bitboard& rhs) const {
-#ifdef HAVE_SSE4
+#if defined(HAVE_SSE4)
         return (_mm_testc_si128(_mm_cmpeq_epi8(this->m_, rhs.m_), _mm_set1_epi8(static_cast<char>(0xffu))) ? true : false);
 #else
         return (this->p(0) == rhs.p(0)) && (this->p(1) == rhs.p(1));
@@ -299,7 +305,8 @@ private:
 class Bitboard256 {
 public:
     Bitboard256() {}
-#if defined (HAVE_AVX2)
+// _mm256系はsse2neon.hで未定義
+#if defined (HAVE_AVX2) && !defined(__ARM_NEON)
     Bitboard256& operator = (const Bitboard256& rhs) { _mm256_store_si256(&this->m_, rhs.m_); return *this; }
     Bitboard256(const Bitboard256& bb) { _mm256_store_si256(&this->m_, bb.m_); }
 
@@ -317,7 +324,7 @@ public:
     Bitboard256(const Bitboard& b1) { p_[0] = p_[2] = b1.p_[0]; p_[1] = p_[3] = b1.p_[1]; }
 #endif
     Bitboard256 operator &= (const Bitboard256& rhs) {
-#if defined (HAVE_AVX2)
+#if defined (HAVE_AVX2) && !defined(__ARM_NEON)
         _mm256_store_si256(&this->m_, _mm256_and_si256(this->m_, rhs.m_));
 #else
         this->p_[0] &= rhs.p_[0];
@@ -328,7 +335,7 @@ public:
         return *this;
     }
     Bitboard256 operator |= (const Bitboard256& rhs) {
-#if defined (HAVE_AVX2)
+#if defined (HAVE_AVX2) && !defined(__ARM_NEON)
         _mm256_store_si256(&this->m_, _mm256_or_si256(this->m_, rhs.m_));
 #else
         this->p_[0] |= rhs.p_[0];
@@ -339,7 +346,7 @@ public:
         return *this;
     }
     Bitboard256 operator ^= (const Bitboard256& rhs) {
-#if defined (HAVE_AVX2)
+#if defined (HAVE_AVX2) && !defined(__ARM_NEON)
         _mm256_store_si256(&this->m_, _mm256_xor_si256(this->m_, rhs.m_));
 #else
         this->p_[0] ^= rhs.p_[0];
@@ -355,7 +362,7 @@ public:
     // byte単位で入れ替えたBitboardを返す。
     // 角の利きの右上、右下方向を求める時に使う。
     Bitboard256 byteReverse() const {
-#if defined (HAVE_AVX2)
+#if defined (HAVE_AVX2) && !defined(__ARM_NEON)
         const __m256i shuffle = _mm256_set_epi8
         (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
             0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
@@ -374,7 +381,7 @@ public:
     // 保持している2つの盤面を重ね合わせた(OR)Bitboardを返す。
     Bitboard merge() const
     {
-#if defined (HAVE_AVX2)
+#if defined (HAVE_AVX2) && !defined(__ARM_NEON)
         Bitboard b;
         b.m_ = _mm_or_si128(_mm256_castsi256_si128(m_), _mm256_extracti128_si256(m_, 1));
         return b;
@@ -387,7 +394,7 @@ public:
     }
     // SSE2のunpackを実行して返す。
     static void unpack(const Bitboard256& hiIn, const Bitboard256& loIn, Bitboard256& hiOut, Bitboard256& loOut) {
-#if defined (HAVE_AVX2)
+#if defined (HAVE_AVX2) && !defined(__ARM_NEON)
         hiOut.m_ = _mm256_unpackhi_epi64(loIn.m_, hiIn.m_);
         loOut.m_ = _mm256_unpacklo_epi64(loIn.m_, hiIn.m_);
 #else
@@ -406,7 +413,7 @@ public:
     // 128bit整数とみなして1引き算したBitboardを返す。
     static void decrement(const Bitboard256& hiIn, const Bitboard256& loIn, Bitboard256& hiOut, Bitboard256& loOut)
     {
-#if defined (HAVE_AVX2)
+#if defined (HAVE_AVX2) && !defined(__ARM_NEON)
 
         // loが0の時だけ1減算するときにhiからの桁借りが生じるので、
         // hi += (lo == 0) ? -1 : 0;
@@ -430,7 +437,7 @@ public:
     }
 
 private:
-#if defined (HAVE_SSE2) || defined (HAVE_SSE4)
+#if defined (HAVE_SSE2) || defined (HAVE_SSE4) && !defined(__ARM_NEON)
     union {
         u64 p_[4];
         __m256i m_;
